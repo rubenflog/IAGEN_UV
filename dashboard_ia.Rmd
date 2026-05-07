@@ -46,7 +46,7 @@ uv5 <- c("#0D44B2", "#067023", "#462184", "#A714B6", "#10B08E")
 uv7 <- c("#0D44B2", "#067023", "#462184", "#A714B6", "#10B08E", "#1D1464", "#546955")
 
 ## Cargamos base
-df <- read.csv("ia_uso.csv")
+df <- read.csv("ia_uso.csv", encoding = "UTF-8")
 
 # Funciones para decodificar
 sino <- function(x){case_when(x == 1 ~ "Sí",
