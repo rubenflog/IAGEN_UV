@@ -1,0 +1,674 @@
+---
+title: "Uso de IA entre estudiantes de la UV"
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+    social: menu
+    source: embed
+    
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+```
+
+```{r global, include = F}
+library(tidyverse)
+library(shiny)
+library(shinyWidgets)
+library(tm)
+library(tokenizers)
+library(wordcloud)
+library(kableExtra)
+library(gridExtra)
+library(scales)
+
+## Algunas preparaciones
+theme_rubs <- theme(panel.background = element_rect(fill="white"),
+                    panel.grid = element_line(color = "lightgrey"),
+                    axis.ticks = element_line(color = "lightgrey"),
+                    plot.title = element_text(hjust = 1),
+                    axis.text.y = element_text(size = 10),
+                    legend.position = "bottom",
+                    legend.key = element_rect(fill = "white"))
+
+## Paleta
+## Paletas de colores
+azuluv <- "#0D44B2"
+verdeuv <- "#067023"
+hombres <- "#067023"
+mujeres <- "#462184"
+hym <- c("#067023", "#462184")
+uv2 <- c("#0D44B2", "#067023")
+uv3 <- c("#0D44B2", "#067023", "#462184")
+uv5 <- c("#0D44B2", "#067023", "#462184", "#A714B6", "#10B08E")
+uv7 <- c("#0D44B2", "#067023", "#462184", "#A714B6", "#10B08E", "#1D1464", "#546955")
+
+## Cargamos base
+df <- read.csv("ia_uso.csv")
+
+# Funciones para decodificar
+sino <- function(x){case_when(x == 1 ~ "Sí",
+                              x == 2 ~ "No")}
+
+grade_4 <- function(x){case_when(x == 2 ~ 0,
+                                 x == 3 ~ 1,
+                                 x == 4 ~ 2,
+                                 x == 5 ~ 3,
+                                 x == 6 ~ 4)}
+
+
+# Áreas
+df <- df %>%
+  mutate(area = case_when(X34 == 1 ~ "Educación",
+                          X34 == 2 ~ "Artes y humanidades",
+                          X34 == 3 ~ "Ciencias sociales y derecho",
+                          X34 == 4 ~ "Administración y negocios",
+                          X34 == 5 ~ "Ciencias naturales, matemáticas",
+                          X34 == 6 ~ "Tecnologías de la información y comunicación",
+                          X34 == 7 ~ "Ingeniería, manufactura, construcción",
+                          X34 == 8 ~ "Agronomía y veterinaria",
+                          X34 == 9 ~ "Ciencias de la salud",
+                          X34 == 10 ~ "Servicios",
+                          X34 == 11 ~ "Otra"))
+
+# Sexo biológico
+df <- df %>%
+  mutate(sexo = case_when(X31 == 1 ~ "Mujeres",
+                          X31 == 2 ~ "Hombres",
+                          !X31 %in% c(1,2) ~ "Otro"))
+
+# Nivel
+df <- df %>%
+  mutate(nivel = case_when(X35 == 1 ~ "TSU",
+                           X35 == 2 ~ "Licenciatura",
+                           X35 == 3 ~ "Especialidad",
+                           X35 == 4 ~ "Maestría",
+                           X35 == 5 ~ "Doctorado")) 
+
+# Transformaciones de escalas
+# Opinión hacia IA
+df[58:72] <-  lapply(df[58:72], grade_4)
+df <- df %>%
+  rowwise() %>%
+  mutate(opin_ia = sum(c_across(X9_1:X9_15))) %>%
+  ungroup() %>%
+  mutate(opin_ia = opin_ia/60)
+
+# Opinión hacia la IA en investigación
+df[92:100] <-  lapply(df[92:100], grade_4)
+df <- df %>%
+  rowwise() %>%
+  mutate(opin_ia_inv = sum(c_across(X18_1:X18_9))) %>%
+  ungroup() %>%
+  mutate(opin_ia_inv = opin_ia_inv/36)
+```
+
+
+
+Inputs {.sidebar data-width=200}
+-----------------------------------------------------------------------
+
+```{r}
+
+areas <- df %>%
+  count(area)
+
+sexos <- df %>%
+  count(sexo)
+
+niveles <- df %>%
+  count(nivel)
+
+##### INPUTS
+pickerInput("area_anuies",
+                  "Área del conocimiento",
+                  choices = areas$area,
+                  options = list(`actions-box` = TRUE), multiple = T, selected = NULL)
+
+pickerInput("sexo_biol",
+                  "Sexo biológico",
+                  choices = sexos$sexo,
+                  options = list(`actions-box` = TRUE), multiple = T, selected = NULL)
+
+pickerInput("nivel_e",
+                  "Nivel educativo",
+                  choices = niveles$nivel,
+                  options = list(`actions-box` = TRUE), multiple = T, selected = NULL)
+
+```
+*Elaboró aplicación*  
+
+- Dr. Rubén Flores González
+
+*Operación de plataforma en línea y soporte*  
+
+- Mtro. Urbano Francisco Ortega Rivera  
+- Lic. Ricardo Velázquez Bautista  
+
+*Recolección y curación de datos*  
+
+Basado en la Encuesta Nacional sobre IA Generativa en Educación Superior (SE, 2026) 
+
+**Centro de Estudios de Opinión y Análisis de la Universidad Veracruzana**
+
+```{r}
+### Aquí debe estar el X reactivo
+j <- reactive ({
+      if(is.null(input$area_anuies)){j <- areas$area} else {j <- input$area_anuies}
+})
+k <- reactive ({
+      if(is.null(input$sexo_biol)){k <- sexos$sexo} else {k <- input$sexo_biol}
+})
+
+l <- reactive({
+      if(is.null(input$nivel_e)){l <- niveles$nivel} else {k <- input$nivel_e}
+})
+
+x <- reactive({
+  req(j(), k(), l())
+  x <- df %>%
+      filter(area %in% j()) %>%
+      filter(sexo %in% k()) %>%
+      filter(nivel %in% l())
+  })
+
+
+renderText({
+  paste("Visualizando", length(x()$ResponseId), "estudiantes")
+})
+```
+
+### Usos de la IA en los últimos 3 meses 
+```{r}
+renderPlot({
+ax <- x()%>%
+  select(X2_1:X2_6) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X2_1" ~ "Audio",
+                          tipo == "X2_2" ~ "Código",
+                          tipo == "X2_3" ~ "Imágenes",
+                          tipo == "X2_4" ~ "Textos",
+                          tipo == "X2_5" ~ "Videos",
+                          tipo == "X2_6" ~ "Ninguno")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  ggplot(aes(x = reorder(tipo, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "Tipo de contenidos generados")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+
+bx <- x() %>%
+  select(X8_1:X8_15) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X8_1" ~ "Buscar fuentes de información",
+                          tipo == "X8_2" ~ "Resumir textos",
+                          tipo == "X8_3" ~ "Traducir textos",
+                          tipo == "X8_4" ~ "Organizar ideas",
+                          tipo == "X8_5" ~ "Prepararme para exámenes",
+                          tipo == "X8_6" ~ "Resolver dudas",
+                          tipo == "X8_7" ~ "Redactar tareas, ensayos o reportes",
+                          tipo == "X8_8" ~ "Corregir ortografía, redacción o estilo",
+                          tipo == "X8_9" ~ "Reformular o parafrasear contenidos",
+                          tipo == "X8_10" ~ "Procesar y analizar datos",
+                          tipo == "X8_11" ~ "Programar o generar código",
+                          tipo == "X8_12" ~ "Crear audios, videos, imágenes\no presentaciones",
+                          tipo == "X8_13" ~ "Simular escenarios, hacer predicciones",
+                          tipo == "X8_14" ~ "Apoyar el diagnóstico médico",
+                          tipo == "X8_15" ~ "Apoyar el desarrollo de prototipos")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  ggplot(aes(x = reorder(tipo, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "Usos de la IA en actividades académicas")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+
+grid.arrange(ax, bx, ncol = 2)
+})
+```
+
+```{r}
+renderTable({
+herramientas <- x() %>%
+  select(X3_1:X3_10) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X3_1" ~ "ChatGPT, Gemini, Claude, Perplexity u otros generadores de texto",
+                          tipo == "X3_2" ~ "Grammarly, DeepL Write u otros asistentes de escritura",
+                          tipo == "X3_3" ~ "Copilot, Notion AI u otros asistentes integrados en programas de oficina",
+                          tipo == "X3_4" ~ "DALL·E, Midjourney, Leonardo AI u otros generadores de imágenes",
+                          tipo == "X3_5" ~ "Khanmigo, Duolingo Max u otros tutores con IA",
+                          tipo == "X3_6" ~ "Wolfram Alpha, MATHGPT u otras herramientas para resolver problemas matemáticos",
+                          tipo == "X3_7" ~ "Noodle Factory, Gradescope u otras plataformas educativas con IA",
+                          tipo == "X3_8" ~ "Woebot, Wysa, Replika u otras herramientas de apoyo emocional",
+                          tipo == "X3_9" ~ "GitHub Copilot, Replit AI, Tabnine u otras herramientas para escribir o corregir código",
+                          tipo == "X3_10" ~ "Otras")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  arrange(-n) %>%
+  select(tipo, n) %>%
+  mutate(n = comma(n, accuracy = 1))  
+
+names(herramientas) <- c("Herramientas usadas por las y los estudiantes", "Número de menciones")
+
+herramientas
+})
+```
+
+### Frecuencia de uso y costos
+```{r}
+renderPlot({
+x() %>%
+    count(X5) %>%
+    mutate(frec = case_when(X5 == 1 ~ "Nunca",
+                            X5 == 2 ~ "Algunas veces al año",
+                            X5 == 3 ~ "Algunas veces al mes",
+                            X5 == 4 ~ "Algunas veces a la semana",
+                            X5 == 5 ~ "Diariamente",
+                            !X5 %in% seq(1,5,1) ~ "No aplica//No responde")) %>%
+    mutate(frec = fct_relevel(frec, "Nunca", "Algunas veces al año", "Algunas veces al mes", "Algunas veces a la semana", "Diariamente", "No aplica//No responde")) %>%
+    group_by(frec) %>%
+    summarise(n = sum(n)) %>%
+    ggplot(aes(x = frec, y = n, label = comma(n, accuracy = 1)))+
+    geom_bar(stat = "identity", fill = verdeuv)+
+    geom_text()+
+    labs(x = "Frecuencia de uso", y = "Número de estudiantes")+
+    scale_y_continuous(label = comma)+
+    coord_flip()+
+    theme_rubs
+})
+```
+
+```{r}
+renderTable({
+costos <- x() %>%
+  select(X4_1 : X4_4) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X4_1" ~ "Uso herramientas gratuitas",
+                   tipo == "X4_2" ~ "Uso herramientas gratuitas con versión de paga",
+                   tipo == "X4_3" ~ "Uso herramientas de paga",
+                   tipo == "X4_4" ~ "Uso herramientas pagadas por mi institución")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  arrange(-n) %>%
+  select(-valores) %>%
+  ungroup() %>%
+  mutate(porc = round(n/sum(n)*100,1)) %>%
+  mutate(n = comma(n, accuracy = 1))
+  
+
+names(costos) <- c("Costo de herramienta", "Número de estudiantes", "Porcentaje")
+
+costos
+})
+```
+
+### Dominio de herramientas IA
+
+```{r}
+renderPlot({
+x() %>%
+  group_by(area) %>%
+  summarise(medias = mean(X7_1, na.rm = T), de = sd(X7_1, na.rm = T), n = length(X7_1), err = de/sqrt(length(X7_1))) %>%
+  mutate(LI = medias - 1.96*err) %>%
+  mutate(LS = medias + 1.96 * err) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder(area, medias), y = medias, label = round(medias,0)))+
+  geom_point()+
+  geom_errorbar(aes(ymin = LI, ymax = LS))+
+  labs(x = NULL, y = "Autoevaluación del dominio de IA", caption = paste(round(length(x()$ResponseId[x()$X6 == 1])/length(x()$ResponseId)*100,2), " %", "de los estudiantes en la visualización han tomado cursos sobre el uso de IA generativa"))+
+  scale_y_continuous(breaks = seq(0,10,1), limits = c(0,10))+
+  coord_flip()+
+  theme_rubs
+})
+```
+
+### Opiniones hacia el uso de la IA en la academia
+```{r}
+renderPlot({
+x() %>%
+  group_by(area) %>%
+  summarise(medias = mean(opin_ia, na.rm = T), de = sd(opin_ia, na.rm = T), n = length(opin_ia), err = de/sqrt(length(opin_ia))) %>%
+  mutate(LI = medias - 1.96*err) %>%
+  mutate(LS = medias + 1.96 * err) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder(area, medias), y = medias, label = round(medias,0)))+
+  geom_point()+
+  geom_errorbar(aes(ymin = LI, ymax = LS))+
+  labs(x = NULL, y = "Opinión hacia el uso de IA")+
+  scale_y_continuous(breaks = seq(0,1,.2), limits = c(0,1), labels = c("Desfavorable", "","","", "", "Favorable"))+
+  coord_flip()+
+  theme_rubs
+})
+```
+
+### Efectos de la IA en procesos académicos
+
+```{r}
+renderPlot({
+cx <- x() %>%
+  count(X11) %>%
+  filter(X11 > 0) %>%
+  mutate(X11 = case_when(X11 == 1 ~ "No uso herramientas IA",
+                   X11 == 2 ~ "Ha empeorado mucho",
+                   X11 == 3 ~ "Ha empeorado",
+                   X11 == 4 ~ "No ha cambiado",
+                   X11 == 5 ~ "Ha mejorado algo",
+                   X11 == 6 ~ "Ha mejorado mucho")) %>%
+  mutate(porc = round(n/sum(n)*100,2)) %>%
+  ggplot(aes(x = reorder(X11, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "Desde que usas la IA,\ntu desempeño académico...")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+  
+
+dx <- x() %>%
+  count(X12) %>%
+  filter(X12 > 0) %>%
+  mutate(X12 = case_when(X12 == 1 ~ "No uso herramientas IA",
+                         X12 == 2 ~ "Ha empeorado mucho",
+                         X12 == 3 ~ "Ha empeorado",
+                         X12 == 4 ~ "No ha cambiado",
+                         X12 == 5 ~ "Ha mejorado algo",
+                         X12 == 6 ~ "Ha mejorado mucho")) %>%
+  mutate(porc = round(n/sum(n)*100,2)) %>%
+  ggplot(aes(x = reorder(X12, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "El proceso enseñanza-aprendizaje,\npor el efecto de la IA...")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+
+grid.arrange(cx, dx, ncol = 2)
+})
+```
+
+### Efectos de la IA en el ámbito profesional
+```{r}
+renderPlot({
+  ex <- x() %>%
+  count(X14) %>%
+  filter(X14 > 0) %>%
+  mutate(X14 = case_when(X14 == 1 ~ "No lo sé",
+                         X14 == 2 ~ "Nada",
+                         X14 == 3 ~ "Poco",
+                         X14 == 4 ~ "Mucho")) %>%
+  mutate(porc = round(n/sum(n)*100,2)) %>%
+  ggplot(aes(x = reorder(X14, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "¿Tu carrera está siendo transformada\npor el uso de la IA?")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+
+
+fx <- x() %>%
+  count(X15) %>%
+  filter(X15 > 0) %>%
+  mutate(X15 = case_when(X15 == 1 ~ "Sustituto",
+                         X15 == 2 ~ "Colaborador",
+                         X15 == 3 ~ "Herramienta",
+                         X15 == 4 ~ "No tendrá impacto",
+                         X15 == 5 ~ "No sabría decir")) %>%
+  mutate(porc = round(n/sum(n)*100,2)) %>%
+  ggplot(aes(x = reorder(X15, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "¿Qué papel tendrá la IA en el ejercicio\nprofesional de tu carrera")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+
+grid.arrange(ex, fx, ncol = 2)
+})
+```
+
+### Uso de la IA en la investigación
+```{r}
+renderPlot({
+  x() %>%
+  select(X17_1:X17_9) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X17_1" ~ "Generar ideas o preguntas de investigación",
+                   tipo == "X17_2" ~ "Buscar y revisar literatura académica",
+                   tipo == "X17_3" ~ "Diseñar proyectos de investigación",
+                   tipo == "X17_4" ~ "Recolectar datos o información",
+                   tipo == "X17_5" ~ "Procesar y analizar datos o información",
+                   tipo == "X17_6" ~ "Simular escenarios o hacer predicciones",
+                   tipo == "X17_7" ~ "Desarrollar prototipos",
+                   tipo == "X17_8" ~ "Redactar, corregir o traducir textos",
+                   tipo == "X17_9" ~ "Preparar presentaciones o material de difusión")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  ggplot(aes(x = reorder(tipo,n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+})
+```
+
+### Opinión hacia el uso de IA en investigación
+```{r}
+renderPlot({
+  x() %>%
+  group_by(area) %>%
+  summarise(medias = mean(opin_ia_inv, na.rm = T), de = sd(opin_ia_inv, na.rm = T), n = length(opin_ia_inv), err = de/sqrt(length(opin_ia_inv))) %>%
+  mutate(LI = medias - 1.96*err) %>%
+  mutate(LS = medias + 1.96 * err) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder(area, medias), y = medias, label = round(medias,0)))+
+  geom_point()+
+  geom_errorbar(aes(ymin = LI, ymax = LS))+
+  labs(x = NULL, y = "Opinión hacia el uso de la IA en investigación")+
+  scale_y_continuous(breaks = seq(0,1,.2), limits = c(0,1), labels = c("Desfavorable", "","","", "", "Favorable"))+
+  coord_flip()+
+  theme_rubs
+})
+```
+
+
+### Uso de IA con fines no académicos en los últimos 3 meses
+
+```{r}
+renderPlot({
+  x() %>%
+  select(X19_1:X19_9) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X19_1" ~ "Investigar sobre temas de interés personal",
+                   tipo == "X19_2" ~ "Ahorrar tiempo y ser más eficiente",
+                   tipo == "X19_3" ~ "Tomar decisiones personales",
+                   tipo == "X19_4" ~ "Creación y/o edición de contenidos no académicos",
+                   tipo == "X19_5" ~ "Resolver problemas de la vida cotidiana",
+                   tipo == "X19_6" ~ "Para divertirme o distraerme",
+                   tipo == "X19_7" ~ "Para adquirir conocimientos y/o capacidades",
+                   tipo == "X19_8" ~ "Para apoyo emocional",
+                   tipo == "X19_9" ~ "Otras actividades")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  ggplot(aes(x = reorder(tipo,n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+})
+```
+
+### Razones para buscar apoyo emocional en la IA
+
+```{r}
+renderPlot({
+gx <-   x() %>%
+  select(X20_1:X20_6) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X20_1" ~ "Desahogarme o sentir\nque alguien me escucha",
+                   tipo == "X20_2" ~ "Pedir consejos sobre ansiedad, estrés,\ndepresión o tristeza",
+                   tipo == "X20_3" ~ "Buscar motivación o palabras de ánimo",
+                   tipo == "X20_4" ~ "Simular una conversación\ncon alguien que me apoye",
+                   tipo == "X20_5" ~ "Evaluar si necesito ayuda psicológica",
+                   tipo == "X20_6" ~ "Otra razón")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  ggplot(aes(x = reorder(tipo,n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "Propósito del apoyo emocional con IA")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+  
+hx <- x() %>%
+  count(X21) %>%
+  filter(X21 >0) %>%
+  mutate(X21 = case_when(X21 == 1 ~ "Me perjudicaron mucho",
+                         X21 == 2 ~ "Me perjudicaron un poco",
+                         X21 == 3 ~ "Ni me perjudicaron\nni me ayudaron",
+                         X21 == 4 ~ "Me ayudaron un poco",
+                         X21 == 5 ~ "Me ayudaron mucho")) %>%
+  ggplot(aes(x = reorder(X21, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "¿Qué tanto te ayudaron las herramientas\nIA emocionalmente?")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+
+grid.arrange(gx, hx, ncol = 2)
+})
+```
+
+### Apoyo emocional con IA (Continuación)
+```{r}
+renderPlot({
+  ix <- x() %>%
+  count(X22) %>%
+  filter(X22 >0) %>%
+  mutate(X22 = case_when(X22 == 1 ~ "No me lo había planteado",
+                         X22 == 2 ~ "Prefiero hablar con una persona",
+                         X22 == 3 ~ "Depende del tema",
+                         X22 == 4 ~ "Prefiero la IA")) %>%
+  ggplot(aes(x = reorder(X22, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "¿Cuando te sientes mal emocionalmente\nprefieres hablar con la IA?")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+  
+  jx <- x() %>%
+  count(X27) %>%
+  filter(X27 > 0) %>%
+  mutate(X27 = case_when(X27 == 1 ~ "No tengo opinión",
+                         X27 == 2 ~ "La salud emocional sólo debe\nser atendida por personas",
+                         X27 == 3 ~ "Sí, con la supervisión de una\npersona profesional",
+                         X27 == 4 ~ "Sí, sería muy útil")) %>%
+  ggplot(aes(x = reorder(X27, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "¿Estarías de acuerdo en que la universidad\nusara IA para brindar acompañamiento psicoemocional\ncomo primer punto de contacto?")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+
+  grid.arrange(ix, jx, ncol = 2)
+  
+})
+```
+
+### Integración de la IA en la Universidad
+```{r}
+renderPlot({
+  x() %>%
+  count(X23) %>%
+  filter(X23 > 0) %>%
+  mutate(X23 = case_when(X23 == 1 ~ "No tengo opinión",
+                         X23 == 2 ~ "No debería usarse en educación",
+                         X23 == 3 ~ "Sí, como herramienta opcional",
+                         X23 == 4 ~ "Sí, de manera obligatoria")) %>%
+  ggplot(aes(x = reorder(X23, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "¿Tu universidad debería integrar la IAGEN en la educación?",
+       caption = paste(round(length(x()$ResponseId[x()$X24 == 1])/length(x()$ResponseId) * 100,2), " % de las y los estudiantes en la visualización tienen interés en tomar cursos sobre el uso de la IA\n",
+                       round(length(x()$ResponseId[x()$X25 == 1])/length(x()$ResponseId) * 100, 2), " % de las y los estudiantes en la visualización creen que la universidad debería ofrecer cursos sobre el uso de la IA\n",
+                       round(length(x()$ResponseId[x()$X26 == 2])/length(x()$ResponseId) * 100,2), " % de las y los estudiantes en la visualización no conocen sobre normatividad para el uso de la IA en la academia"))+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs  
+})
+```
+
+### Amenazas, riesgos y problemáticas
+```{r}
+renderPlot({
+  x() %>%
+  select(X29_1:X29_10) %>%
+  pivot_longer(cols = everything(), names_to = "tipo", values_to = "valores") %>%
+  mutate(tipo = case_when(tipo == "X29_1" ~ "Privacidad y protección de datos personales",
+                          tipo == "X29_2" ~ "Seguridad digital",
+                          tipo == "X29_3" ~ "Propiedad intelectual y derechos de autor",
+                          tipo == "X29_4" ~ "Parcialidad y discriminación en los algoritmos",
+                          tipo == "X29_5" ~ "Impactos sociales",
+                          tipo == "X29_6" ~ "Impactos ambientales",
+                          tipo == "X29_7" ~ "Problemas técnicos",
+                          tipo == "X29_8" ~ "Generación de información falsa",
+                          tipo == "X29_9" ~ "No conozco ningún tipo de riesgos, amenazas\no situaciones problemáticas",
+                          tipo == "X29_10" ~ "Otros riesgos")) %>%
+  group_by(tipo) %>%
+  count(valores) %>%
+  filter(valores == 1) %>%
+  ggplot(aes(x = reorder(tipo, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+})
+```
+
+### ¿Qué tanto confías en las respuestas, resultados y recomendaciones de la IA?
+
+```{r}
+renderPlot({
+  x() %>%
+  count(X28) %>%
+  filter(X28 >0) %>%
+  mutate(X28 = case_when(X28 == 1 ~ "No sabría decir",
+                         X28 == 2 ~ "Nada",
+                         X28 == 3 ~ "Poco, uso las respuestas con cautela",
+                         X28 == 4 ~ "Algo, siempre reviso las respuestas",
+                         X28 == 5 ~ "Mucho, pero reviso las respuestas",
+                         X28 == 6 ~ "Plenamente")) %>%
+  ggplot(aes(x = reorder(X28, n), y = n, label = comma(n, accuracy = 1)))+
+  geom_bar(stat = "identity", fill = verdeuv)+
+  geom_text()+
+  labs(x = NULL, y = "Número de estudiantes", title = "¿Qué tanto te ayudaron las herramientas IA emocionalmente?")+
+  scale_y_continuous(label = comma)+
+  coord_flip()+
+  theme_rubs
+})
+```
+
